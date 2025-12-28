@@ -14,7 +14,7 @@ export const DAO_VOTING_ABI = [
   {
     "type": "function",
     "name": "retirar",
-    "inputs": [{"name": "cantidad", "type": "uint256"}],
+    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -41,6 +41,18 @@ export const DAO_VOTING_ABI = [
   },
   {
     "type": "function",
+    "name": "votarGasless",
+    "inputs": [
+      {"name": "votante", "type": "address"},
+      {"name": "propuestaId", "type": "uint256"},
+      {"name": "voto", "type": "uint8"},
+      {"name": "signature", "type": "bytes"}
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "finalizarVotacion",
     "inputs": [{"name": "propuestaId", "type": "uint256"}],
     "outputs": [],
@@ -49,6 +61,13 @@ export const DAO_VOTING_ABI = [
   {
     "type": "function",
     "name": "ejecutarPropuesta",
+    "inputs": [{"name": "propuestaId", "type": "uint256"}],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cancelarPropuesta",
     "inputs": [{"name": "propuestaId", "type": "uint256"}],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -97,12 +116,36 @@ export const DAO_VOTING_ABI = [
   },
   {
     "type": "function",
+    "name": "saldosDeposito",
+    "inputs": [{"name": "", "type": "address"}],
+    "outputs": [{"type": "uint256"}],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "obtenerSaldoRetirable",
+    "inputs": [{"name": "usuario", "type": "address"}],
+    "outputs": [{"type": "uint256"}],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "haVotado",
     "inputs": [
       {"name": "propuestaId", "type": "uint256"},
       {"name": "usuario", "type": "address"}
     ],
     "outputs": [{"type": "bool"}],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "obtenerTipoVoto",
+    "inputs": [
+      {"name": "propuestaId", "type": "uint256"},
+      {"name": "usuario", "type": "address"}
+    ],
+    "outputs": [{"type": "uint8"}],
     "stateMutability": "view"
   },
   {
@@ -137,6 +180,11 @@ export const DAO_VOTING_ABI = [
   {
     "type": "event",
     "name": "PropuestaEjecutada",
+    "inputs": [{"name": "propuestaId", "type": "uint256", "indexed": true}]
+  },
+  {
+    "type": "event",
+    "name": "PropuestaCancelada",
     "inputs": [{"name": "propuestaId", "type": "uint256", "indexed": true}]
   },
   {
