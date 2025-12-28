@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 import "../src/DAOVoting.sol";
@@ -43,7 +43,7 @@ contract DeployScript is Script {
         console.log("Forwarder:    ", address(forwarder));
         console.log("DAO:          ", address(dao));
         console.log("Saldo minimo: ", MINIMUM_BALANCE);
-        console.log("Delay ejecución:", EXECUTION_DELAY);
+        console.log("Delay ejecucion:", EXECUTION_DELAY);
         console.log("========================================\n");
 
         // Guardar direcciones en archivo (opcional)

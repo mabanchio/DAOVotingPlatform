@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/metatx/MinimalForwarder.sol";
+import "@openzeppelin/contracts/metatx/ERC2771Forwarder.sol";
 
 /**
  * @title CustomMinimalForwarder
@@ -13,6 +13,6 @@ import "@openzeppelin/contracts/metatx/MinimalForwarder.sol";
  * - Reenvía la transacción al contrato objetivo
  * - La aplicación (relayer) paga el gas
  */
-contract CustomMinimalForwarder is MinimalForwarder {
-    constructor() MinimalForwarder() {}
+contract CustomMinimalForwarder is ERC2771Forwarder {
+    constructor() ERC2771Forwarder("DAOVotingForwarder") {}
 }

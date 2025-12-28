@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/metatx/ERC2771Context.sol";
-import "@openzeppelin/contracts/metatx/MinimalForwarder.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 
 /**
  * @title DAOVoting
- * @dev Contrato principal de la DAO con soporte para votaciones sin gas (meta-transacciones)
+ * @dev Contrato principal de la DAO con soporte para votaciones
  */
-contract DAOVoting is ERC2771Context, Ownable {
-    using Counters for Counters.Counter;
+contract DAOVoting is Ownable {
 
     // Enums
     enum ProposalState {
@@ -36,8 +32,8 @@ contract DAOVoting is ERC2771Context, Ownable {
         string titulo;
         string descripcion;
         uint256 saldoRequerido;
-        uint256 plazoVotacion; // en segundos
-        uint256 tiempoEjecucion; // timestamp cuando se puede ejecutar
+        uint256 plazoVotacion;
+        uint256 tiempoEjecucion;
         uint256 fechaCreacion;
         uint256 fechaFinVotacion;
         
@@ -72,12 +68,13 @@ contract DAOVoting is ERC2771Context, Ownable {
     }
 
     // Variables de estado
-    Counters.Counter private _propuestasCounter;
+    uint256 private _propuestasCounter = 0;
+    address public forwarderAddress;
     
-    uint256 public saldoMinimo; // Saldo mínimo para participar (0.1 ETH por defecto)
-    uint256 public porcentajeRequisitoCreacion; // Porcentaje requerido para crear propuestas (10%)
-    uint256 public saldoMinimoBases; // En denominadores (1000 = 100%, 100 = 10%)
-    uint256 public tiempoEjecucionDemorado; // Tiempo de espera antes de ejecutar (1 día)
+    uint256 public saldoMinimo;
+    uint256 public porcentajeRequisitoCreacion;
+    uint256 public saldoMinimoBases;
+    uint256 public tiempoEjecucionDemorado;
 
     mapping(uint256 => Proposal) public propuestas;
     mapping(address => uint256) public saldosDeposito;
@@ -105,25 +102,26 @@ contract DAOVoting is ERC2771Context, Ownable {
 
     // Modificadores
     modifier propuestaValida(uint256 propuestaId) {
-        require(propuestaId < _propuestasCounter.current(), "Propuesta no existe");
+        require(propuestaId < _propuestasCounter, "Propuesta no existe");
         _;
     }
 
     modifier puedeVotar(uint256 propuestaId) {
-        require(saldosDeposito[_msgSender()] >= saldoMinimo, "Saldo insuficiente");
-        require(!propuestas[propuestaId].haVotado[_msgSender()], "Ya has votado");
+        require(saldosDeposito[msg.sender] >= saldoMinimo, "Saldo insuficiente");
+        require(!propuestas[propuestaId].haVotado[msg.sender], "Ya has votado");
         require(propuestas[propuestaId].estado == ProposalState.Votacion, "Votacion no activa");
         _;
     }
 
     // Constructor
     constructor(
-        address forwarderAddress,
+        address _forwarderAddress,
         uint256 _saldoMinimo,
         uint256 _tiempoEjecucionDemorado
-    ) ERC2771Context(forwarderAddress) {
+    ) Ownable(msg.sender) {
+        forwarderAddress = _forwarderAddress;
         saldoMinimo = _saldoMinimo;
-        porcentajeRequisitoCreacion = 10; // 10%
+        porcentajeRequisitoCreacion = 10;
         saldoMinimoBases = 1000;
         tiempoEjecucionDemorado = _tiempoEjecucionDemorado;
     }
@@ -131,28 +129,27 @@ contract DAOVoting is ERC2771Context, Ownable {
     // ==================== Funciones Públicas ====================
 
     /**
-     * @dev Permite a los usuarios depositar ETH en la DAO
+     * @dev Permite depositar ETH en la DAO
      */
     function depositar() external payable {
         require(msg.value > 0, "El deposito debe ser mayor a 0");
-        saldosDeposito[_msgSender()] += msg.value;
-        emit DepositoRealizado(_msgSender(), msg.value);
+        saldosDeposito[msg.sender] += msg.value;
+        emit DepositoRealizado(msg.sender, msg.value);
     }
 
     /**
-     * @dev Permite a los usuarios retirar sus fondos
+     * @dev Permite retirar fondos
      */
     function retirar(uint256 cantidad) external {
-        require(saldosDeposito[_msgSender()] >= cantidad, "Saldo insuficiente");
-        saldosDeposito[_msgSender()] -= cantidad;
-        (bool exito, ) = payable(_msgSender()).call{value: cantidad}("");
-        require(exito, "Transferencia fallida");
-        emit RetiroRealizado(_msgSender(), cantidad);
+        require(saldosDeposito[msg.sender] >= cantidad, "Saldo insuficiente");
+        saldosDeposito[msg.sender] -= cantidad;
+        (bool exito, ) = payable(msg.sender).call{value: cantidad}("");
+        require(exito, "Retiro fallido");
+        emit RetiroRealizado(msg.sender, cantidad);
     }
 
     /**
      * @dev Crea una nueva propuesta
-     * Requiere al menos el 10% del saldo total de la DAO
      */
     function crearPropuesta(
         string memory titulo,
@@ -162,15 +159,15 @@ contract DAOVoting is ERC2771Context, Ownable {
         uint256 saldoTotalDAO = address(this).balance;
         uint256 saldoRequerido = (saldoTotalDAO * porcentajeRequisitoCreacion) / saldoMinimoBases;
         
-        require(saldosDeposito[_msgSender()] >= saldoRequerido, "Saldo insuficiente para crear propuesta");
+        require(saldosDeposito[msg.sender] >= saldoRequerido, "Saldo insuficiente para crear propuesta");
         require(tiempoVotacion > 0, "Tiempo de votacion debe ser mayor a 0");
 
-        uint256 propuestaId = _propuestasCounter.current();
-        _propuestasCounter.increment();
+        uint256 propuestaId = _propuestasCounter;
+        _propuestasCounter++;
 
         Proposal storage prop = propuestas[propuestaId];
         prop.id = propuestaId;
-        prop.creador = _msgSender();
+        prop.creador = msg.sender;
         prop.titulo = titulo;
         prop.descripcion = descripcion;
         prop.saldoRequerido = saldoRequerido;
@@ -179,44 +176,48 @@ contract DAOVoting is ERC2771Context, Ownable {
         prop.fechaFinVotacion = block.timestamp + tiempoVotacion;
         prop.tiempoEjecucion = block.timestamp + tiempoVotacion + tiempoEjecucionDemorado;
         prop.estado = ProposalState.Votacion;
+        prop.ejecutada = false;
 
-        emit PropuestaCreada(propuestaId, _msgSender(), titulo, tiempoVotacion);
+        emit PropuestaCreada(propuestaId, msg.sender, titulo, tiempoVotacion);
         return propuestaId;
     }
 
     /**
-     * @dev Emite un voto en una propuesta (sin gas usando meta-transacciones)
+     * @dev Emite un voto en una propuesta
      */
-    function votar(uint256 propuestaId, VoteType voto) external propuestaValida(propuestaId) puedeVotar(propuestaId) {
+    function votar(uint256 propuestaId, VoteType voto) 
+        external 
+        propuestaValida(propuestaId) 
+        puedeVotar(propuestaId) 
+    {
         Proposal storage prop = propuestas[propuestaId];
         
-        prop.haVotado[_msgSender()] = true;
-        prop.tipoVoto[_msgSender()] = voto;
+        prop.haVotado[msg.sender] = true;
+        prop.tipoVoto[msg.sender] = voto;
 
         if (voto == VoteType.Favor) {
-            prop.votosAFavor += 1;
+            prop.votosAFavor++;
         } else if (voto == VoteType.Contra) {
-            prop.votosEnContra += 1;
+            prop.votosEnContra++;
         } else {
-            prop.votosAbstencion += 1;
+            prop.votosAbstencion++;
         }
 
-        emit VotoEmitido(propuestaId, _msgSender(), voto);
-        
-        // Actualizar estado si el plazo terminó
-        _actualizarEstadoPropuesta(propuestaId);
+        emit VotoEmitido(propuestaId, msg.sender, voto);
     }
 
     /**
-     * @dev Finaliza la votación y determina si fue aprobada
+     * @dev Finaliza la votación
      */
-    function finalizarVotacion(uint256 propuestaId) external propuestaValida(propuestaId) {
+    function finalizarVotacion(uint256 propuestaId) 
+        external 
+        propuestaValida(propuestaId) 
+    {
         Proposal storage prop = propuestas[propuestaId];
         
-        require(prop.estado == ProposalState.Votacion, "Votacion no esta activa");
-        require(block.timestamp >= prop.fechaFinVotacion, "Plazo de votacion no ha terminado");
+        require(block.timestamp >= prop.fechaFinVotacion, "Votacion aun activa");
+        require(prop.estado == ProposalState.Votacion, "Propuesta no esta en votacion");
 
-        // Si hay más votos a favor que en contra, se aprueba
         if (prop.votosAFavor > prop.votosEnContra) {
             prop.estado = ProposalState.Aprobada;
             emit PropuestaAprobada(propuestaId);
@@ -227,28 +228,38 @@ contract DAOVoting is ERC2771Context, Ownable {
     }
 
     /**
-     * @dev Ejecuta una propuesta aprobada después del tiempo de demora
+     * @dev Ejecuta una propuesta aprobada
      */
-    function ejecutarPropuesta(uint256 propuestaId) external propuestaValida(propuestaId) {
+    function ejecutarPropuesta(uint256 propuestaId) 
+        external 
+        propuestaValida(propuestaId) 
+    {
         Proposal storage prop = propuestas[propuestaId];
         
-        require(prop.estado == ProposalState.Aprobada, "Propuesta no fue aprobada");
+        require(prop.estado == ProposalState.Aprobada, "Propuesta no esta aprobada");
+        require(block.timestamp >= prop.tiempoEjecucion, "Tiempo de ejecucion no alcanzado");
         require(!prop.ejecutada, "Propuesta ya fue ejecutada");
-        require(block.timestamp >= prop.tiempoEjecucion, "Tiempo de ejecucion aun no llega");
 
-        prop.ejecutada = true;
         prop.estado = ProposalState.Ejecutada;
-
+        prop.ejecutada = true;
+        
         emit PropuestaEjecutada(propuestaId);
     }
 
-    // ==================== Funciones de Consulta ====================
+    // ==================== Funciones de Vista ====================
 
     /**
-     * @dev Retorna el número total de propuestas
+     * @dev Obtiene el saldo de un usuario
+     */
+    function obtenerSaldo(address usuario) external view returns (uint256) {
+        return saldosDeposito[usuario];
+    }
+
+    /**
+     * @dev Retorna el total de propuestas
      */
     function obtenerTotalPropuestas() external view returns (uint256) {
-        return _propuestasCounter.current();
+        return _propuestasCounter;
     }
 
     /**
@@ -261,33 +272,26 @@ contract DAOVoting is ERC2771Context, Ownable {
         returns (ProposalInfo memory) 
     {
         Proposal storage prop = propuestas[propuestaId];
-        return ProposalInfo({
-            id: prop.id,
-            creador: prop.creador,
-            titulo: prop.titulo,
-            descripcion: prop.descripcion,
-            saldoRequerido: prop.saldoRequerido,
-            plazoVotacion: prop.plazoVotacion,
-            tiempoEjecucion: prop.tiempoEjecucion,
-            fechaCreacion: prop.fechaCreacion,
-            fechaFinVotacion: prop.fechaFinVotacion,
-            votosAFavor: prop.votosAFavor,
-            votosEnContra: prop.votosEnContra,
-            votosAbstencion: prop.votosAbstencion,
-            estado: prop.estado,
-            ejecutada: prop.ejecutada
-        });
+        return ProposalInfo(
+            prop.id,
+            prop.creador,
+            prop.titulo,
+            prop.descripcion,
+            prop.saldoRequerido,
+            prop.plazoVotacion,
+            prop.tiempoEjecucion,
+            prop.fechaCreacion,
+            prop.fechaFinVotacion,
+            prop.votosAFavor,
+            prop.votosEnContra,
+            prop.votosAbstencion,
+            prop.estado,
+            prop.ejecutada
+        );
     }
 
     /**
-     * @dev Retorna el saldo depositado de un usuario
-     */
-    function obtenerSaldo(address usuario) external view returns (uint256) {
-        return saldosDeposito[usuario];
-    }
-
-    /**
-     * @dev Verifica si un usuario ha votado en una propuesta
+     * @dev Verifica si un usuario ha votado
      */
     function haVotado(uint256 propuestaId, address usuario) 
         external 
@@ -298,36 +302,16 @@ contract DAOVoting is ERC2771Context, Ownable {
         return propuestas[propuestaId].haVotado[usuario];
     }
 
-    // ==================== Funciones Internas ====================
-
     /**
-     * @dev Actualiza automáticamente el estado de una propuesta
+     * @dev Obtiene el tipo de voto de un usuario
      */
-    function _actualizarEstadoPropuesta(uint256 propuestaId) internal {
-        Proposal storage prop = propuestas[propuestaId];
-        
-        if (block.timestamp >= prop.fechaFinVotacion && prop.estado == ProposalState.Votacion) {
-            if (prop.votosAFavor > prop.votosEnContra) {
-                prop.estado = ProposalState.Aprobada;
-                emit PropuestaAprobada(propuestaId);
-            } else {
-                prop.estado = ProposalState.Rechazada;
-                emit PropuestaRechazada(propuestaId);
-            }
-        }
-    }
-
-    /**
-     * @dev Función requerida por ERC2771Context
-     */
-    function _msgSender() internal view override(Context, ERC2771Context) returns (address) {
-        return super._msgSender();
-    }
-
-    /**
-     * @dev Función requerida por ERC2771Context
-     */
-    function _msgData() internal view override(Context, ERC2771Context) returns (bytes calldata) {
-        return super._msgData();
+    function obtenerTipoVoto(uint256 propuestaId, address usuario) 
+        external 
+        view 
+        propuestaValida(propuestaId) 
+        returns (VoteType) 
+    {
+        require(propuestas[propuestaId].haVotado[usuario], "Usuario no ha votado");
+        return propuestas[propuestaId].tipoVoto[usuario];
     }
 }
