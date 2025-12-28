@@ -122,7 +122,7 @@ export async function signMetaTransaction(
     ],
   };
 
-  const signature = await signer.signTypedData(domain, types, req);
+  const signature = await signer.signTypedData(domain as any, types, req as any);
 
   return { req, signature };
 }

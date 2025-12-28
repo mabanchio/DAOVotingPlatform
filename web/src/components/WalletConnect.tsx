@@ -23,17 +23,17 @@ export default function WalletConnect({
       setLoading(true);
 
       // Verificar si MetaMask está instalado
-      if (!window.ethereum) {
+      if (!(window as any).ethereum) {
         alert('Por favor instala MetaMask');
         return;
       }
 
       // Solicitar cuentas
-      const accounts = await window.ethereum.request({
+      const accounts = await (window as any).ethereum.request({
         method: 'eth_requestAccounts',
       });
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
       onConnect(accounts[0], provider);
     } catch (error) {
       console.error('Error al conectar:', error);
