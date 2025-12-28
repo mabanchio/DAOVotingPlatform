@@ -75,6 +75,7 @@ contract DAOVoting is Ownable {
     uint256 public porcentajeRequisitoCreacion;
     uint256 public saldoMinimoBases;
     uint256 public tiempoEjecucionDemorado;
+    uint256 public saldoTotalDepositado = 0;
 
     mapping(uint256 => Proposal) public propuestas;
     mapping(address => uint256) public saldosDeposito;
@@ -96,6 +97,7 @@ contract DAOVoting is Ownable {
     event PropuestaAprobada(uint256 indexed propuestaId);
     event PropuestaRechazada(uint256 indexed propuestaId);
     event PropuestaEjecutada(uint256 indexed propuestaId);
+    event PropuestaCancelada(uint256 indexed propuestaId);
     
     event DepositoRealizado(address indexed usuario, uint256 cantidad);
     event RetiroRealizado(address indexed usuario, uint256 cantidad);
@@ -107,7 +109,6 @@ contract DAOVoting is Ownable {
     }
 
     modifier puedeVotar(uint256 propuestaId) {
-        require(saldosDeposito[msg.sender] >= saldoMinimo, "Saldo insuficiente");
         require(!propuestas[propuestaId].haVotado[msg.sender], "Ya has votado");
         require(propuestas[propuestaId].estado == ProposalState.Votacion, "Votacion no activa");
         _;
@@ -134,32 +135,53 @@ contract DAOVoting is Ownable {
     function depositar() external payable {
         require(msg.value > 0, "El deposito debe ser mayor a 0");
         saldosDeposito[msg.sender] += msg.value;
+        saldoTotalDepositado += msg.value;
         emit DepositoRealizado(msg.sender, msg.value);
     }
 
     /**
-     * @dev Permite retirar fondos
+     * @dev Permite retirar fondos de manera equitativa
+     * Solo retira la proporción que le corresponde: (su_deposito / total_depositado) * saldo_actual
      */
-    function retirar(uint256 cantidad) external {
-        require(saldosDeposito[msg.sender] >= cantidad, "Saldo insuficiente");
-        saldosDeposito[msg.sender] -= cantidad;
-        (bool exito, ) = payable(msg.sender).call{value: cantidad}("");
+    function retirar() external {
+        require(saldosDeposito[msg.sender] > 0, "No tienes fondos depositados");
+        
+        uint256 saldoRetirable = obtenerSaldoRetirable(msg.sender);
+        require(saldoRetirable >= 0.0001 ether, "Saldo retirable debe ser al menos 0.0001 ETH");
+        
+        uint256 depositoAnterior = saldosDeposito[msg.sender];
+        saldosDeposito[msg.sender] = 0;
+        saldoTotalDepositado -= depositoAnterior;
+        
+        (bool exito, ) = payable(msg.sender).call{value: saldoRetirable}("");
         require(exito, "Retiro fallido");
-        emit RetiroRealizado(msg.sender, cantidad);
+        emit RetiroRealizado(msg.sender, saldoRetirable);
     }
 
     /**
-     * @dev Crea una nueva propuesta
+     * @dev Calcula el saldo retirable de un usuario basado en su contribución
+     * Fórmula: (su_deposito / total_depositado) * saldo_actual_contrato
+     * Si es negativo o cero (fondos consumidos), retorna 0
+     */
+    function obtenerSaldoRetirable(address usuario) public view returns (uint256) {
+        uint256 depositoUsuario = saldosDeposito[usuario];
+        if (depositoUsuario == 0) return 0;
+        if (saldoTotalDepositado == 0) return 0;
+        
+        uint256 saldoActual = address(this).balance;
+        uint256 saldoRetirable = (depositoUsuario * saldoActual) / saldoTotalDepositado;
+        
+        return saldoRetirable;
+    }
+
+    /**
+     * @dev Crea una nueva propuesta (sin requisito de depósito, consume gas de wallet)
      */
     function crearPropuesta(
         string memory titulo,
         string memory descripcion,
         uint256 tiempoVotacion
     ) external returns (uint256) {
-        uint256 saldoTotalDAO = address(this).balance;
-        uint256 saldoRequerido = (saldoTotalDAO * porcentajeRequisitoCreacion) / saldoMinimoBases;
-        
-        require(saldosDeposito[msg.sender] >= saldoRequerido, "Saldo insuficiente para crear propuesta");
         require(tiempoVotacion > 0, "Tiempo de votacion debe ser mayor a 0");
 
         uint256 propuestaId = _propuestasCounter;
@@ -170,7 +192,7 @@ contract DAOVoting is Ownable {
         prop.creador = msg.sender;
         prop.titulo = titulo;
         prop.descripcion = descripcion;
-        prop.saldoRequerido = saldoRequerido;
+        prop.saldoRequerido = 0;
         prop.plazoVotacion = tiempoVotacion;
         prop.fechaCreacion = block.timestamp;
         prop.fechaFinVotacion = block.timestamp + tiempoVotacion;
@@ -204,6 +226,116 @@ contract DAOVoting is Ownable {
         }
 
         emit VotoEmitido(propuestaId, msg.sender, voto);
+    }
+
+    /**
+     * @dev Emite un voto sin gastar gas (votación gasless)
+     * Requiere: saldo depositado previo + firma válida
+     * El contrato paga el gas
+     */
+    function votarGasless(
+        address votante,
+        uint256 propuestaId,
+        VoteType voto,
+        bytes memory signature
+    ) 
+        external 
+        propuestaValida(propuestaId) 
+    {
+        // Votación sin gas: cualquiera puede votar, el contrato paga el costo de gas
+        // NO se requiere que el votante tenga fondos depositados
+        
+        // Validar que el contrato tiene fondos para pagar el gas
+        require(address(this).balance >= 0.0001 ether, "Contrato sin fondos para pagar votacion sin gas");
+        
+        // Validar que el usuario no ha votado ya
+        require(!propuestas[propuestaId].haVotado[votante], "Ya has votado");
+        
+        // Validar que la propuesta está en votación
+        require(propuestas[propuestaId].estado == ProposalState.Votacion, "Votacion no activa");
+        
+        // Verificar la firma - mensaje simple
+        string memory message = string(abi.encodePacked(
+            "Voto en propuesta ",
+            _uintToString(propuestaId),
+            " tipo ",
+            _uintToString(uint256(voto))
+        ));
+        
+        bytes32 messageHash = keccak256(abi.encodePacked(
+            "\x19Ethereum Signed Message:\n",
+            _uintToString(bytes(abi.encodePacked(message)).length),
+            message
+        ));
+        
+        address recoveredAddress = _recoverAddress(messageHash, signature);
+        require(recoveredAddress == votante, "Firma invalida");
+        
+        // Registrar el voto
+        Proposal storage prop = propuestas[propuestaId];
+        prop.haVotado[votante] = true;
+        prop.tipoVoto[votante] = voto;
+
+        if (voto == VoteType.Favor) {
+            prop.votosAFavor++;
+        } else if (voto == VoteType.Contra) {
+            prop.votosEnContra++;
+        } else {
+            prop.votosAbstencion++;
+        }
+
+        // Consumir una pequeña cantidad del saldo del CONTRATO para pagar gas
+        // Costo fijo por votación gasless: 0.0001 ETH (sale del saldo del contrato, no del usuario)
+        uint256 gasCost = 0.0001 ether;
+        require(address(this).balance >= gasCost, "Contrato sin fondos para pagar votacion sin gas");
+        
+        // Transferir el dinero del gas al owner (para pagar por el servidor que procesó la transacción)
+        (bool exito, ) = payable(owner()).call{value: gasCost}("");
+        require(exito, "Error al transferir costo de gas");
+
+        emit VotoEmitido(propuestaId, votante, voto);
+    }
+
+    // Funciones auxiliares para manejo de firmas
+    function _recoverAddress(bytes32 messageHash, bytes memory signature) 
+        internal 
+        pure 
+        returns (address) 
+    {
+        (bytes32 r, bytes32 s, uint8 v) = _splitSignature(signature);
+        return ecrecover(messageHash, v, r, s);
+    }
+
+    function _splitSignature(bytes memory sig) 
+        internal 
+        pure 
+        returns (bytes32 r, bytes32 s, uint8 v) 
+    {
+        require(sig.length == 65, "Firma invalida");
+        assembly {
+            r := mload(add(sig, 32))
+            s := mload(add(sig, 64))
+            v := byte(0, mload(add(sig, 96)))
+        }
+    }
+
+    function _uintToString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) {
+            return "0";
+        }
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
     }
 
     /**
@@ -244,6 +376,24 @@ contract DAOVoting is Ownable {
         prop.ejecutada = true;
         
         emit PropuestaEjecutada(propuestaId);
+    }
+
+    /**
+     * @dev Cancela una propuesta (solo el creador durante votación)
+     */
+    function cancelarPropuesta(uint256 propuestaId) 
+        external 
+        propuestaValida(propuestaId) 
+    {
+        Proposal storage prop = propuestas[propuestaId];
+        
+        require(prop.creador == msg.sender, "Solo el creador puede cancelar la propuesta");
+        require(prop.estado == ProposalState.Votacion, "Solo se pueden cancelar propuestas en votacion");
+        require(!prop.ejecutada, "Propuesta ya fue ejecutada");
+
+        prop.estado = ProposalState.Cancelada;
+        
+        emit PropuestaCancelada(propuestaId);
     }
 
     // ==================== Funciones de Vista ====================
