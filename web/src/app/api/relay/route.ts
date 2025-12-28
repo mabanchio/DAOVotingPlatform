@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
-import { getServerSigner, getForwarderContract, getDAOContract } from '@/lib/web3';
+import { getServerSigner, getForwarderContract } from '@/lib/web3';
 
 /**
  * POST /api/relay
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
  * Obtiene el nonce actual para una dirección
  */
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { address: string } }
 ) {
   try {

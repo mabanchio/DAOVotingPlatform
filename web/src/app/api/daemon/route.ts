@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { ethers } from 'ethers';
 import { getServerSigner, getDAOContract } from '@/lib/web3';
 
 /**
