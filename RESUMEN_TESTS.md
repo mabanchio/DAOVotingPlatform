@@ -87,28 +87,25 @@
 
 ```bash
 cd sc/
-forge test -vv                # Ejecutar todos los tests con detalle
-forge test --rerun            # Reintentar última falla
-forge test -vv --match testDepositar  # Ejecutar test específico
-forge test --gas-report       # Generar reporte de gas
+
+# Ejecutar todos los tests con detalle
+forge test -vv
+
+# Ejecutar test específico
+forge test -vv --match testDepositar
+
+# Generar reporte de gas
+forge test --gas-report
 ```
 
 ## Problemas Resueltos
 
 1. **Stack Too Deep**: Solucionado con `via_ir = true` en foundry.toml
 2. **Versión Solidity**: Actualizado a 0.8.24 compatible con OpenZeppelin
-3. **Conflictos de Herencia ERC2771**: Removido para simplicidad, usando solo Ownable
+3. **Conflictos de Herencia**: Removido ERC2771Context, usando solo Ownable
 4. **Deprecated Counters**: Reemplazado con simple uint256 counter
-
-## Próximos Pasos (Opcionales)
-
-- [ ] Agregar más tests para meta-transacciones (ERC2771)
-- [ ] Tests de seguridad (reentrancy, overflow, etc.)
-- [ ] Tests de integración con frontend
-- [ ] Auditoría de seguridad profesional
-- [ ] Gas optimization
 
 ---
 
-**Última Actualización**: 28 de Diciembre 2025
+**Última Actualización**: 28 de Diciembre 2025  
 **Estado**: ✅ Producción Lista (sin auditoría)
